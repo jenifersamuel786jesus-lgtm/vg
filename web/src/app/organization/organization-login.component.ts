@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { DataService } from '../services/data.service';
+import { ApiService } from '../services/api.service';
 
 @Component({
   selector: 'app-organization-login',
@@ -24,16 +24,19 @@ export class OrganizationLoginComponent {
   password = '';
   error = '';
 
-  constructor(private data: DataService, private router: Router) {}
+  constructor(private api: ApiService, private router: Router) {}
 
   login() {
-    const orgs = this.data.getOrgs();
-    const org = orgs.find(o => o.email === this.email && o.password === this.password);
-    if (!org) {
-      this.error = 'Invalid login';
-      return;
-    }
-    this.data.setCurrentOrgEmail(org.email);
-    this.router.navigate(['/organization/dashboard']);
+    this.error = '';
+    this.api.orgLogin({ email: this.email, password: this.password }).subscribe({
+      next: org => {
+        localStorage.removeItem('currentVolunteer');
+        localStorage.setItem('currentOrg', JSON.stringify(org));
+        this.router.navigate(['/organization/dashboard']);
+      },
+      error: err => {
+        this.error = err?.error?.error || 'Invalid login';
+      }
+    });
   }
 }

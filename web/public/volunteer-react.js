@@ -1,18 +1,49 @@
 (function () {
   const e = React.createElement;
-  const { useEffect, useState } = React;
+  const { useEffect, useRef, useState } = React;
 
-  function load(key, fallback) {
+  const API_BASE = "http://localhost:4000/api";
+
+  function loadCurrentUser() {
     try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
+      const raw = localStorage.getItem("currentVolunteer");
+      return raw ? JSON.parse(raw) : null;
     } catch {
-      return fallback;
+      return null;
     }
   }
 
-  function save(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
+  function saveCurrentUser(user) {
+    if (!user) {
+      localStorage.removeItem("currentVolunteer");
+      return;
+    }
+    localStorage.setItem("currentVolunteer", JSON.stringify(user));
+  }
+
+  async function request(path, options) {
+    const res = await fetch(API_BASE + path, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = data && data.error ? data.error : "Request failed";
+      throw new Error(message);
+    }
+    return data;
+  }
+
+  function apiGet(path) {
+    return request(path, { method: "GET" });
+  }
+
+  function apiPost(path, body) {
+    return request(path, { method: "POST", body: JSON.stringify(body) });
+  }
+
+  function apiPut(path, body) {
+    return request(path, { method: "PUT", body: JSON.stringify(body) });
   }
 
   function normalizeSkill(skill) {
@@ -43,55 +74,93 @@
   }
 
   function VolunteerApp() {
-    const [volunteers, setVolunteers] = useState(load("volunteers", []));
-    const [events, setEvents] = useState(load("events", []));
-    const [currentUser, setCurrentUser] = useState(null);
-    const [view, setView] = useState("home");
+    const [events, setEvents] = useState([]);
+    const [currentUser, setCurrentUser] = useState(loadCurrentUser());
+    const [view, setView] = useState(currentUser ? "dashboard-events" : "home");
     const [modal, setModal] = useState(null);
+    const lastEventsKeyRef = useRef("");
 
-    useEffect(() => save("volunteers", volunteers), [volunteers]);
-    useEffect(() => save("events", events), [events]);
+    useEffect(() => {
+      saveCurrentUser(currentUser);
+    }, [currentUser]);
 
-    function login(email, password) {
-      const v = volunteers.find((x) => x.email === email && x.password === password);
-      if (!v) {
-        alert("Invalid login");
-        return;
+    useEffect(() => {
+      fetchEvents();
+      if (currentUser?.id) {
+        refreshCurrentUser(currentUser.id);
       }
-      setCurrentUser(v);
-      setView("dashboard-events");
+
+      const interval = setInterval(() => {
+        fetchEvents();
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }, [currentUser?.id]);
+
+    async function fetchEvents() {
+      try {
+        const data = await apiGet("/events");
+        const next = Array.isArray(data) ? data : [];
+        const key = JSON.stringify(next);
+        if (key !== lastEventsKeyRef.current) {
+          lastEventsKeyRef.current = key;
+          setEvents(next);
+        }
+      } catch {
+        setEvents([]);
+      }
     }
 
-    function signup(data) {
-      setVolunteers([
-        ...volunteers,
-        {
-          name: data.name,
-          email: data.email,
-          skills: data.skills,
-          password: data.password,
-          photo: data.photo || "https://via.placeholder.com/100",
-          badges: [],
-        },
-      ]);
-      setView("login");
+    async function refreshCurrentUser(id) {
+      try {
+        const data = await apiGet(`/volunteers/${id}`);
+        setCurrentUser(data);
+      } catch {
+        // ignore
+      }
     }
 
-    function applyEvent(index, motivation) {
-      const next = [...events];
-      next[index].volunteers.push({
-        email: currentUser.email,
-        status: "pending",
-        motivation,
-      });
-      setEvents(next);
-      setModal(null);
-      setView("dashboard-events");
+    async function login(email, password) {
+      try {
+        const user = await apiPost("/volunteers/login", { email, password });
+        localStorage.removeItem("currentOrg");
+        setCurrentUser(user);
+        setView("dashboard-events");
+        fetchEvents();
+      } catch (err) {
+        alert("Invalid login");
+      }
+    }
+
+    async function signup(data) {
+      try {
+        await apiPost("/volunteers/signup", data);
+        setView("login");
+      } catch (err) {
+        alert(err.message || "Signup failed");
+      }
+    }
+
+    async function applyEvent(index, motivation) {
+      const event = events[index];
+      if (!event || !currentUser) return;
+
+      try {
+        await apiPost(`/events/${event.id}/apply`, {
+          volunteerId: currentUser.id,
+          motivation,
+        });
+        await fetchEvents();
+        setModal(null);
+        setView("dashboard-events");
+      } catch (err) {
+        alert(err.message || "Failed to apply");
+      }
     }
 
     function downloadPDF(title) {
       const { jsPDF } = window.jspdf;
-      const event = events.find((e) => e.title === title);
+      const event = events.find((ev) => ev.title === title);
       const orgName = event ? event.orgName : "Organization";
       const date = new Date().toLocaleDateString();
 
@@ -343,14 +412,18 @@
         e(
           "button",
           {
-            onClick: () => {
-              const updated = { ...currentUser, name, skills, photo };
-              const next = volunteers.map((v) =>
-                v.email === updated.email ? updated : v
-              );
-              setVolunteers(next);
-              setCurrentUser(updated);
-              setView("dashboard-profile");
+            onClick: async () => {
+              try {
+                const updated = await apiPut(`/volunteers/${currentUser.id}`, {
+                  name,
+                  skills,
+                  photo,
+                });
+                setCurrentUser(updated);
+                setView("dashboard-profile");
+              } catch (err) {
+                alert(err.message || "Failed to update profile");
+              }
             },
           },
           "Save"

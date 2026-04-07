@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { DataService } from '../services/data.service';
+import { ApiService } from '../services/api.service';
 
 @Component({
   selector: 'app-organization-signup',
@@ -26,20 +26,22 @@ export class OrganizationSignupComponent {
   password = '';
   error = '';
 
-  constructor(private data: DataService, private router: Router) {}
+  constructor(private api: ApiService, private router: Router) {}
 
   register() {
     if (!this.name || !this.email || !this.password) {
       this.error = 'Please fill all fields';
       return;
     }
-    const orgs = this.data.getOrgs();
-    if (orgs.some(o => o.email === this.email)) {
-      this.error = 'Email already registered';
-      return;
-    }
-    orgs.push({ name: this.name, email: this.email, password: this.password });
-    this.data.setOrgs(orgs);
-    this.router.navigate(['/organization']);
+
+    this.error = '';
+    this.api.orgSignup({ name: this.name, email: this.email, password: this.password }).subscribe({
+      next: () => {
+        this.router.navigate(['/organization']);
+      },
+      error: err => {
+        this.error = err?.error?.error || 'Signup failed';
+      }
+    });
   }
 }

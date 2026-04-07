@@ -1,8 +1,14 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { DataService, EventItem, Volunteer } from '../services/data.service';
+import { ApiService, EventItem } from '../services/api.service';
+
+interface CurrentOrg {
+  id: number;
+  name: string;
+  email: string;
+}
 
 @Component({
   selector: 'app-organization-dashboard',
@@ -22,107 +28,151 @@ import { DataService, EventItem, Volunteer } from '../services/data.service';
         <input [(ngModel)]="maxVol" placeholder="Max Volunteers" />
         <input [(ngModel)]="image" placeholder="Image URL" />
         <button (click)="addEvent()">Post</button>
+        <p *ngIf="error" style="color:crimson">{{ error }}</p>
       </div>
 
       <h2>Manage Events</h2>
-      <div class="card" *ngFor="let ev of orgEvents; let i = index">
+      <div class="card" *ngFor="let ev of orgEvents">
         <h3>{{ ev.title }}</h3>
         <div *ngIf="ev.volunteers.length === 0">No volunteers yet</div>
-        <p *ngFor="let v of ev.volunteers; let vi = index">
+        <p *ngFor="let v of ev.volunteers">
           {{ v.email }} - {{ v.status }}
-          <button *ngIf="v.status === 'pending'" (click)="accept(i, vi)">Accept</button>
-          <button *ngIf="v.status === 'pending'" (click)="reject(i, vi)">Reject</button>
-          <button *ngIf="v.status === 'accepted'" (click)="complete(i, vi)">Completed</button>
+          <button *ngIf="v.status === 'pending'" (click)="accept(ev.id, v.volunteerId)">Accept</button>
+          <button *ngIf="v.status === 'pending'" (click)="reject(ev.id, v.volunteerId)">Reject</button>
+          <button *ngIf="v.status === 'accepted'" (click)="complete(ev.id, v.volunteerId)">Completed</button>
         </p>
       </div>
     </div>
   </div>
   `
 })
-export class OrganizationDashboardComponent implements OnInit {
+export class OrganizationDashboardComponent implements OnInit, OnDestroy {
   orgName = '';
+  orgId = 0;
   title = '';
   skill = '';
   maxVol = '';
   image = '';
   orgEvents: EventItem[] = [];
+  error = '';
+  private refreshHandle: number | null = null;
+  private lastEventsKey = '';
 
-  constructor(private data: DataService, private router: Router) {}
+  constructor(private api: ApiService, private router: Router, private cdr: ChangeDetectorRef) {}
 
   ngOnInit() {
-    const email = this.data.getCurrentOrgEmail();
-    if (!email) {
+    const raw = localStorage.getItem('currentOrg');
+    if (!raw) {
       this.router.navigate(['/organization']);
       return;
     }
-    const org = this.data.getOrgs().find(o => o.email === email);
+
+    let org: CurrentOrg | null = null;
+    try {
+      org = JSON.parse(raw) as CurrentOrg;
+    } catch {
+      org = null;
+    }
+
     if (!org) {
-      this.data.clearCurrentOrg();
+      localStorage.removeItem('currentOrg');
       this.router.navigate(['/organization']);
       return;
     }
+
     this.orgName = org.name;
+    this.orgId = org.id;
     this.refreshEvents();
+    this.refreshHandle = window.setInterval(() => this.refreshEvents(), 1000);
   }
 
   refreshEvents() {
-    this.orgEvents = this.data.getEvents().filter(e => e.orgName === this.orgName);
+    this.api.getEventsByOrg(this.orgId).subscribe({
+      next: events => {
+        const key = JSON.stringify(events);
+        if (key !== this.lastEventsKey) {
+          this.lastEventsKey = key;
+          this.orgEvents = events;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.error = 'Failed to load events';
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   addEvent() {
-    const events = this.data.getEvents();
-    events.push({
+    if (!this.title || !this.skill || !this.maxVol) {
+      this.error = 'Please fill all fields';
+      return;
+    }
+
+    this.error = '';
+    this.api.createEvent({
       title: this.title,
       skill: this.skill,
       maxVol: Number(this.maxVol),
-      image: this.image || 'https://via.placeholder.com/80',
-      orgName: this.orgName,
-      status: 'Open',
-      volunteers: []
+      image: this.image || null,
+      orgId: this.orgId
+    }).subscribe({
+      next: event => {
+        this.title = '';
+        this.skill = '';
+        this.maxVol = '';
+        this.image = '';
+        // Show immediately, then sync in background
+        this.orgEvents = [event, ...this.orgEvents];
+        this.cdr.detectChanges();
+        setTimeout(() => this.refreshEvents(), 200);
+      },
+      error: err => {
+        this.error = err?.error?.error || 'Failed to create event';
+      }
     });
-    this.data.setEvents(events);
-    this.title = '';
-    this.skill = '';
-    this.maxVol = '';
-    this.image = '';
-    this.refreshEvents();
   }
 
-  accept(i: number, vi: number) {
-    const events = this.data.getEvents();
-    const target = events.filter(e => e.orgName === this.orgName)[i];
-    target.volunteers[vi].status = 'accepted';
-    this.data.setEvents(events);
-    this.refreshEvents();
+  accept(eventId: number, volunteerId: number) {
+    this.updateStatus(eventId, volunteerId, 'accepted');
   }
 
-  reject(i: number, vi: number) {
-    const events = this.data.getEvents();
-    const target = events.filter(e => e.orgName === this.orgName)[i];
-    target.volunteers[vi].status = 'rejected';
-    this.data.setEvents(events);
-    this.refreshEvents();
+  reject(eventId: number, volunteerId: number) {
+    this.updateStatus(eventId, volunteerId, 'rejected');
   }
 
-  complete(i: number, vi: number) {
-    const events = this.data.getEvents();
-    const target = events.filter(e => e.orgName === this.orgName)[i];
-    target.volunteers[vi].status = 'completed';
-    target.status = 'Completed';
+  complete(eventId: number, volunteerId: number) {
+    this.updateStatus(eventId, volunteerId, 'completed');
+  }
 
-    const volunteers = this.data.getVolunteers();
-    const vol = volunteers.find(v => v.email === target.volunteers[vi].email);
-    if (vol && !vol.badges.includes(target.skill)) {
-      vol.badges.push(target.skill);
-      this.data.setVolunteers(volunteers);
-    }
-
-    this.data.setEvents(events);
-    this.refreshEvents();
+  updateStatus(eventId: number, volunteerId: number, status: string) {
+    this.api.updateVolunteerStatus(eventId, volunteerId, status).subscribe({
+      next: () => {
+        const event = this.orgEvents.find(ev => ev.id === eventId);
+        if (event) {
+          const vol = event.volunteers.find(v => v.volunteerId === volunteerId);
+          if (vol) vol.status = status;
+          if (status === 'completed') event.status = 'Completed';
+        }
+        this.cdr.detectChanges();
+        setTimeout(() => this.refreshEvents(), 200);
+      },
+      error: () => {
+        this.error = 'Failed to update status';
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   logout() {
-    this.data.clearCurrentOrg();
+    localStorage.removeItem('currentOrg');
     this.router.navigate(['/organization']);
+  }
+
+  ngOnDestroy() {
+    if (this.refreshHandle) {
+      clearInterval(this.refreshHandle);
+      this.refreshHandle = null;
+    }
   }
 }

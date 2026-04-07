@@ -1,8 +1,8 @@
-<header class="app-header">
+<header class="app-header" [class.home]="!showNav">
   <img src="favicon.ico" height="30" width="30" alt="Volunteer & Grow" />
   <span>Volunteer & Grow</span>
 </header>
-<nav class="top-nav">
+<nav class="top-nav" *ngIf="showNav">
   <a routerLink="/volunteer" routerLinkActive="active">Volunteer</a>
   <a routerLink="/organization" routerLinkActive="active">Organization</a>
 </nav>
