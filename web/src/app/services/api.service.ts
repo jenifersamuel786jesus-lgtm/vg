@@ -29,7 +29,7 @@ export interface EventItem {
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private readonly baseUrl = 'http://localhost:4000/api';
+  private readonly baseUrl = '/api';
 
   constructor(private http: HttpClient) {}
 

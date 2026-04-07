@@ -2,7 +2,7 @@
   const e = React.createElement;
   const { useEffect, useRef, useState } = React;
 
-  const API_BASE = "http://localhost:4000/api";
+  const API_BASE = "/api";
 
   function loadCurrentUser() {
     try {
