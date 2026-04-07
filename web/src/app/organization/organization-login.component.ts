@@ -27,8 +27,10 @@ export class OrganizationLoginComponent {
   constructor(private api: ApiService, private router: Router) {}
 
   login() {
+    const email = this.email.trim().toLowerCase();
+    const password = this.password.trim();
     this.error = '';
-    this.api.orgLogin({ email: this.email, password: this.password }).subscribe({
+    this.api.orgLogin({ email, password }).subscribe({
       next: org => {
         localStorage.removeItem('currentVolunteer');
         localStorage.setItem('currentOrg', JSON.stringify(org));

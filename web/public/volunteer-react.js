@@ -122,7 +122,12 @@
 
     async function login(email, password) {
       try {
-        const user = await apiPost("/volunteers/login", { email, password });
+        const normalizedEmail = (email || "").trim().toLowerCase();
+        const normalizedPassword = (password || "").trim();
+        const user = await apiPost("/volunteers/login", {
+          email: normalizedEmail,
+          password: normalizedPassword,
+        });
         localStorage.removeItem("currentOrg");
         setCurrentUser(user);
         setView("dashboard-events");
@@ -134,7 +139,15 @@
 
     async function signup(data) {
       try {
-        await apiPost("/volunteers/signup", data);
+        const payload = {
+          ...data,
+          name: (data.name || "").trim(),
+          email: (data.email || "").trim().toLowerCase(),
+          skills: (data.skills || "").trim(),
+          password: (data.password || "").trim(),
+          photo: (data.photo || "").trim(),
+        };
+        await apiPost("/volunteers/signup", payload);
         setView("login");
       } catch (err) {
         alert(err.message || "Signup failed");

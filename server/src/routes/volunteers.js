@@ -10,17 +10,19 @@ router.post('/signup', async (req, res) => {
     return res.status(400).json({ error: 'Name, email, and password are required' });
   }
 
+  const normalizedEmail = String(email).trim().toLowerCase();
+
   try {
     const pool = getPool();
     const [result] = await pool.query(
       'INSERT INTO volunteers (name, email, skills, password, photo, badges) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, email, skills || '', password, photo || null, JSON.stringify([])]
+      [name, normalizedEmail, skills || '', password, photo || null, JSON.stringify([])]
     );
 
     res.status(201).json({
       id: result.insertId,
       name,
-      email,
+      email: normalizedEmail,
       skills: skills || '',
       photo: photo || 'https://via.placeholder.com/100',
       badges: []
@@ -40,11 +42,13 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
+  const normalizedEmail = String(email).trim().toLowerCase();
+
   try {
     const pool = getPool();
     const [rows] = await pool.query(
       'SELECT id, name, email, skills, photo, badges FROM volunteers WHERE email = ? AND password = ? LIMIT 1',
-      [email, password]
+      [normalizedEmail, password]
     );
 
     if (rows.length === 0) {

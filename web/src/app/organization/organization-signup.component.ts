@@ -29,13 +29,17 @@ export class OrganizationSignupComponent {
   constructor(private api: ApiService, private router: Router) {}
 
   register() {
-    if (!this.name || !this.email || !this.password) {
+    const name = this.name.trim();
+    const email = this.email.trim().toLowerCase();
+    const password = this.password.trim();
+
+    if (!name || !email || !password) {
       this.error = 'Please fill all fields';
       return;
     }
 
     this.error = '';
-    this.api.orgSignup({ name: this.name, email: this.email, password: this.password }).subscribe({
+    this.api.orgSignup({ name, email, password }).subscribe({
       next: () => {
         this.router.navigate(['/organization']);
       },
