@@ -79,6 +79,7 @@
     const [view, setView] = useState(currentUser ? "dashboard-events" : "home");
     const [modal, setModal] = useState(null);
     const lastEventsKeyRef = useRef("");
+    const streamRef = useRef(null);
 
     useEffect(() => {
       saveCurrentUser(currentUser);
@@ -90,11 +91,37 @@
         refreshCurrentUser(currentUser.id);
       }
 
-      const interval = setInterval(() => {
-        fetchEvents();
-      }, 1000);
+      if (streamRef.current) {
+        streamRef.current.close();
+      }
 
-      return () => clearInterval(interval);
+      const stream = new EventSource(`${API_BASE}/events/stream`);
+      streamRef.current = stream;
+      stream.onmessage = (evt) => {
+        try {
+          const next = JSON.parse(evt.data || "[]");
+          const key = JSON.stringify(next);
+          if (key !== lastEventsKeyRef.current) {
+            lastEventsKeyRef.current = key;
+            setEvents(next);
+          }
+        } catch {
+          // ignore
+        }
+      };
+      stream.onerror = () => {
+        // fallback to periodic fetch if stream fails
+        stream.close();
+      };
+
+      const fallback = setInterval(() => {
+        fetchEvents();
+      }, 5000);
+
+      return () => {
+        stream.close();
+        clearInterval(fallback);
+      };
     }, [currentUser?.id]);
 
     async function fetchEvents() {

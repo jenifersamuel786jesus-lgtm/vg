@@ -57,6 +57,7 @@ export class OrganizationDashboardComponent implements OnInit, OnDestroy {
   error = '';
   private refreshHandle: number | null = null;
   private lastEventsKey = '';
+  private stream: EventSource | null = null;
 
   constructor(private api: ApiService, private router: Router, private cdr: ChangeDetectorRef) {}
 
@@ -83,7 +84,31 @@ export class OrganizationDashboardComponent implements OnInit, OnDestroy {
     this.orgName = org.name;
     this.orgId = org.id;
     this.refreshEvents();
-    this.refreshHandle = window.setInterval(() => this.refreshEvents(), 1000);
+    this.openStream();
+  }
+
+  openStream() {
+    if (this.stream) {
+      this.stream.close();
+    }
+    this.stream = new EventSource(`/api/events/stream?orgId=${this.orgId}`);
+    this.stream.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data || '[]') as EventItem[];
+        const key = JSON.stringify(data);
+        if (key !== this.lastEventsKey) {
+          this.lastEventsKey = key;
+          this.orgEvents = data;
+          this.cdr.detectChanges();
+        }
+      } catch {
+        // ignore
+      }
+    };
+    this.stream.onerror = () => {
+      this.stream?.close();
+    };
+    this.refreshHandle = window.setInterval(() => this.refreshEvents(), 5000);
   }
 
   refreshEvents() {
@@ -173,6 +198,10 @@ export class OrganizationDashboardComponent implements OnInit, OnDestroy {
     if (this.refreshHandle) {
       clearInterval(this.refreshHandle);
       this.refreshHandle = null;
+    }
+    if (this.stream) {
+      this.stream.close();
+      this.stream = null;
     }
   }
 }

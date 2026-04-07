@@ -24,37 +24,86 @@ function mapEvents(events, volunteers) {
   return Array.from(byEvent.values());
 }
 
+async function fetchEvents(pool, orgId) {
+  const [events] = await pool.query(
+    `SELECT e.id, e.title, e.skill, e.max_vol AS maxVol, e.image, e.status, e.org_id AS orgId, o.name AS orgName
+     FROM events e
+     JOIN orgs o ON o.id = e.org_id
+     ${orgId ? 'WHERE e.org_id = ?' : ''}
+     ORDER BY e.id DESC`,
+    orgId ? [orgId] : []
+  );
+
+  if (events.length === 0) {
+    return [];
+  }
+
+  const eventIds = events.map(ev => ev.id);
+  const [volunteers] = await pool.query(
+    `SELECT ev.event_id AS eventId, ev.volunteer_id AS volunteerId, v.email, ev.status, ev.motivation
+     FROM event_volunteers ev
+     JOIN volunteers v ON v.id = ev.volunteer_id
+     WHERE ev.event_id IN (?)`,
+    [eventIds]
+  );
+
+  return mapEvents(events, volunteers);
+}
+
 router.get('/', async (req, res) => {
   const orgId = req.query.orgId ? Number(req.query.orgId) : null;
 
   try {
     const pool = getPool();
-    const [events] = await pool.query(
-      `SELECT e.id, e.title, e.skill, e.max_vol AS maxVol, e.image, e.status, e.org_id AS orgId, o.name AS orgName
-       FROM events e
-       JOIN orgs o ON o.id = e.org_id
-       ${orgId ? 'WHERE e.org_id = ?' : ''}
-       ORDER BY e.id DESC`,
-      orgId ? [orgId] : []
-    );
-
-    if (events.length === 0) {
-      return res.json([]);
-    }
-
-    const eventIds = events.map(ev => ev.id);
-    const [volunteers] = await pool.query(
-      `SELECT ev.event_id AS eventId, ev.volunteer_id AS volunteerId, v.email, ev.status, ev.motivation
-       FROM event_volunteers ev
-       JOIN volunteers v ON v.id = ev.volunteer_id
-       WHERE ev.event_id IN (?)`,
-      [eventIds]
-    );
-
-    res.json(mapEvents(events, volunteers));
+    const payload = await fetchEvents(pool, orgId);
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch events' });
   }
+});
+
+router.get('/stream', async (req, res) => {
+  const orgId = req.query.orgId ? Number(req.query.orgId) : null;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  let lastPayload = '';
+  let closed = false;
+
+  const pool = getPool();
+
+  const send = async () => {
+    if (closed) return;
+    try {
+      const data = await fetchEvents(pool, orgId);
+      const nextPayload = JSON.stringify(data);
+      if (nextPayload !== lastPayload) {
+        lastPayload = nextPayload;
+        res.write(`data: ${nextPayload}\n\n`);
+      }
+    } catch {
+      // keep connection alive even on transient errors
+    }
+  };
+
+  const heartbeat = () => {
+    if (closed) return;
+    res.write(`event: ping\ndata: ok\n\n`);
+  };
+
+  await send();
+  const intervalId = setInterval(send, 2000);
+  const heartbeatId = setInterval(heartbeat, 15000);
+
+  req.on('close', () => {
+    closed = true;
+    clearInterval(intervalId);
+    clearInterval(heartbeatId);
+    res.end();
+  });
 });
 
 router.post('/', async (req, res) => {
