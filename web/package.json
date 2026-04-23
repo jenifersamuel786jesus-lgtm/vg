@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "dev": "ng build",
+    "dev": "ng serve",
     "start": "ng serve",
     "build": "ng build",
     "vercel-build": "ng build",

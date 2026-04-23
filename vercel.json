@@ -13,7 +13,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "https://vg-8ph4.onrender.com/api/$1"
+      "dest": "https://vg-1-ugmd.onrender.com/api/$1"
     },
     {
       "handle": "filesystem"
