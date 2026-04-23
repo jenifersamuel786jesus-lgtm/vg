@@ -1,5 +1,6 @@
 const express = require('express');
 const { getPool } = require('../db');
+const { buildErrorResponse, logError } = require('../lib/logging');
 
 const router = express.Router();
 
@@ -58,7 +59,8 @@ router.get('/', async (req, res) => {
     const payload = await fetchEvents(pool, orgId);
     res.json(payload);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch events' });
+    logError('events.list', err, { orgId, route: req.originalUrl });
+    res.status(500).json(buildErrorResponse('Failed to fetch events', err));
   }
 });
 
@@ -84,8 +86,10 @@ router.get('/stream', async (req, res) => {
         lastPayload = nextPayload;
         res.write(`data: ${nextPayload}\n\n`);
       }
-    } catch {
-      // keep connection alive even on transient errors
+    } catch (err) {
+      logError('events.stream', err, { orgId, route: req.originalUrl });
+      const payload = buildErrorResponse('Failed to stream events', err);
+      res.write(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
     }
   };
 
@@ -130,7 +134,8 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({ ...rows[0], volunteers: [] });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to create event' });
+    logError('events.create', err, { orgId, title, route: req.originalUrl });
+    res.status(500).json(buildErrorResponse('Failed to create event', err));
   }
 });
 
@@ -154,7 +159,8 @@ router.post('/:id/apply', async (req, res) => {
     if (err && err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'Already applied' });
     }
-    res.status(500).json({ error: 'Failed to apply' });
+    logError('events.apply', err, { eventId, volunteerId, route: req.originalUrl });
+    res.status(500).json(buildErrorResponse('Failed to apply', err));
   }
 });
 
@@ -199,7 +205,8 @@ router.patch('/:id/volunteers/:volunteerId', async (req, res) => {
 
     res.json({ status });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update status' });
+    logError('events.updateVolunteerStatus', err, { eventId, volunteerId, status, route: req.originalUrl });
+    res.status(500).json(buildErrorResponse('Failed to update status', err));
   }
 });
 
