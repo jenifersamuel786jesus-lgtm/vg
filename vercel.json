@@ -1,15 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "builds": [
-    {
-      "src": "web/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "web/dist/web/browser"
-      }
-    }
-  ],
+  "buildCommand": "cd web && npm run build",
+  "outputDirectory": "web/dist/web/browser",
   "routes": [
     {
       "src": "/api/(.*)",
