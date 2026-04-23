@@ -25,28 +25,80 @@ function mapEvents(events, volunteers) {
   return Array.from(byEvent.values());
 }
 
+async function queryEvents(pool, orgId) {
+  const params = orgId ? [orgId] : [];
+  const where = orgId ? 'WHERE e.org_id = ?' : '';
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT e.id, e.title, e.skill, e.max_vol AS maxVol, e.image, e.status, e.org_id AS orgId, o.name AS orgName
+       FROM events e
+       JOIN orgs o ON o.id = e.org_id
+       ${where}
+       ORDER BY e.id DESC`,
+      params
+    );
+
+    return rows;
+  } catch (err) {
+    if (err?.code !== 'ER_BAD_FIELD_ERROR') {
+      throw err;
+    }
+
+    const [rows] = await pool.query(
+      `SELECT e.id, e.title, e.skill, e.max_vol AS maxVol, NULL AS image, 'Open' AS status, e.org_id AS orgId, o.name AS orgName
+       FROM events e
+       JOIN orgs o ON o.id = e.org_id
+       ${where}
+       ORDER BY e.id DESC`,
+      params
+    );
+
+    return rows;
+  }
+}
+
+async function queryVolunteers(pool, eventIds) {
+  try {
+    const [rows] = await pool.query(
+      `SELECT ev.event_id AS eventId, ev.volunteer_id AS volunteerId, v.email, ev.status, ev.motivation
+       FROM event_volunteers ev
+       JOIN volunteers v ON v.id = ev.volunteer_id
+       WHERE ev.event_id IN (?)`,
+      [eventIds]
+    );
+
+    return rows;
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') {
+      return [];
+    }
+
+    if (err?.code !== 'ER_BAD_FIELD_ERROR') {
+      throw err;
+    }
+
+    const [rows] = await pool.query(
+      `SELECT ev.event_id AS eventId, ev.volunteer_id AS volunteerId, v.email, 'pending' AS status, '' AS motivation
+       FROM event_volunteers ev
+       JOIN volunteers v ON v.id = ev.volunteer_id
+       WHERE ev.event_id IN (?)`,
+      [eventIds]
+    );
+
+    return rows;
+  }
+}
+
 async function fetchEvents(pool, orgId) {
-  const [events] = await pool.query(
-    `SELECT e.id, e.title, e.skill, e.max_vol AS maxVol, e.image, e.status, e.org_id AS orgId, o.name AS orgName
-     FROM events e
-     JOIN orgs o ON o.id = e.org_id
-     ${orgId ? 'WHERE e.org_id = ?' : ''}
-     ORDER BY e.id DESC`,
-    orgId ? [orgId] : []
-  );
+  const events = await queryEvents(pool, orgId);
 
   if (events.length === 0) {
     return [];
   }
 
   const eventIds = events.map(ev => ev.id);
-  const [volunteers] = await pool.query(
-    `SELECT ev.event_id AS eventId, ev.volunteer_id AS volunteerId, v.email, ev.status, ev.motivation
-     FROM event_volunteers ev
-     JOIN volunteers v ON v.id = ev.volunteer_id
-     WHERE ev.event_id IN (?)`,
-    [eventIds]
-  );
+  const volunteers = await queryVolunteers(pool, eventIds);
 
   return mapEvents(events, volunteers);
 }
